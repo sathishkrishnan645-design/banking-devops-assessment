@@ -1,0 +1,163 @@
+---
+# ══════════════════════════════════════════════════════════════════════════════
+# Banking App - Ansible Deployment Playbook
+# Deploys Docker container from JFrog Artifactory to Deploy Target
+# ══════════════════════════════════════════════════════════════════════════════
+
+- name: Deploy Banking Application
+  hosts: deploy_target
+  become: yes
+  vars:
+    app_name:        "banking-app"
+    app_port:        "8090"
+    app_version:     "{{ app_version | default('latest') }}"
+    docker_image:    "{{ docker_image }}"
+    jfrog_url:       "{{ jfrog_url }}"
+    jfrog_user:      "{{ jfrog_user }}"
+    jfrog_pass:      "{{ jfrog_pass }}"
+    db_host:         "{{ db_host       | default('localhost') }}"
+    db_port:         "{{ db_port       | default('5432') }}"
+    db_name:         "{{ db_name       | default('bankdb') }}"
+    db_user:         "{{ db_user       | default('bankuser') }}"
+    db_password:     "{{ db_password   | default('bankpassword') }}"
+    api_key:         "{{ api_key       | default('changeme-secret-key') }}"
+
+  tasks:
+
+    # ── 1. Prerequisites ──────────────────────────────────────────────────────
+    - name: Install required packages
+      apt:
+        name:
+          - docker.io
+          - docker-compose
+          - python3-pip
+          - curl
+        state: present
+        update_cache: yes
+
+    - name: Ensure Docker service is running
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Add ubuntu user to docker group
+      user:
+        name: ubuntu
+        groups: docker
+        append: yes
+
+    # ── 2. Login to JFrog Artifactory ─────────────────────────────────────────
+    - name: Log in to JFrog Artifactory Docker registry
+      docker_login:
+        registry_url: "{{ jfrog_url }}"
+        username:     "{{ jfrog_user }}"
+        password:     "{{ jfrog_pass }}"
+        reauthorize:  yes
+
+    # ── 3. Pull Docker Image ──────────────────────────────────────────────────
+    - name: Pull latest banking app image from Artifactory
+      docker_image:
+        name:   "{{ docker_image }}"
+        tag:    "{{ app_version }}"
+        source: pull
+        force_source: yes
+
+    # ── 4. Stop & Remove Old Container ───────────────────────────────────────
+    - name: Stop existing banking-app container (if running)
+      docker_container:
+        name:  "{{ app_name }}"
+        state: absent
+        force_kill: yes
+      ignore_errors: yes
+
+    # ── 5. Create App Directory ───────────────────────────────────────────────
+    - name: Create application directory
+      file:
+        path:  /opt/banking-app
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode:  '0755'
+
+    # ── 6. Write Environment File ─────────────────────────────────────────────
+    - name: Write .env file for banking app
+      copy:
+        dest:    /opt/banking-app/.env
+        mode:    '0600'
+        owner:   ubuntu
+        content: |
+          DB_USER={{ db_user }}
+          DB_PASSWORD={{ db_password }}
+          DB_HOST={{ db_host }}
+          DB_PORT={{ db_port }}
+          DB_NAME={{ db_name }}
+          API_KEY={{ api_key }}
+
+    # ── 7. Start New Container ────────────────────────────────────────────────
+    - name: Start banking-app container
+      docker_container:
+        name:          "{{ app_name }}"
+        image:         "{{ docker_image }}:{{ app_version }}"
+        state:         started
+        restart_policy: unless-stopped
+        ports:
+          - "{{ app_port }}:8090"
+        env_file:      /opt/banking-app/.env
+        log_driver:    json-file
+        log_options:
+          max-size: "50m"
+          max-file: "5"
+        healthcheck:
+          test:     ["CMD", "python3", "-c",
+                     "import urllib.request; urllib.request.urlopen('http://localhost:8090/health')"]
+          interval: 30s
+          timeout:  10s
+          retries:  3
+
+    # ── 8. Wait for App to be Healthy ─────────────────────────────────────────
+    - name: Wait for banking app to be ready
+      uri:
+        url:            "http://{{ inventory_hostname }}:{{ app_port }}/health"
+        method:         GET
+        status_code:    200
+        return_content: yes
+      register: health_result
+      until:    health_result.status == 200
+      retries:  10
+      delay:    10
+
+    - name: Print health check result
+      debug:
+        msg: "✅ App healthy: {{ health_result.json }}"
+
+    # ── 9. Cleanup Old Images ─────────────────────────────────────────────────
+    - name: Remove unused Docker images
+      docker_prune:
+        images: yes
+        images_filters:
+          dangling: true
+
+    # ── 10. Configure UFW Firewall ────────────────────────────────────────────
+    - name: Allow app port through firewall
+      ufw:
+        rule:  allow
+        port:  "{{ app_port }}"
+        proto: tcp
+
+    - name: Allow SSH through firewall
+      ufw:
+        rule:  allow
+        port:  "22"
+        proto: tcp
+
+    - name: Enable UFW firewall
+      ufw:
+        state: enabled
+        policy: deny
+
+  handlers:
+    - name: restart docker
+      service:
+        name:  docker
+        state: restarted

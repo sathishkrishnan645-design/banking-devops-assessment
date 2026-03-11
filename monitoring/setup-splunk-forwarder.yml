@@ -1,0 +1,49 @@
+---
+# ══════════════════════════════════════════════════════════════════════════════
+# Install & Configure Splunk Universal Forwarder on Deploy Target
+# ══════════════════════════════════════════════════════════════════════════════
+
+- name: Configure Splunk Universal Forwarder
+  hosts: deploy_target
+  become: yes
+  vars:
+    splunk_version:   "9.2.1"
+    splunk_home:      "/opt/splunkforwarder"
+    splunk_indexer:   "3.27.228.83"
+    splunk_port:      "9997"
+
+  tasks:
+
+    - name: Download Splunk Universal Forwarder
+      get_url:
+        url:  "https://download.splunk.com/products/universalforwarder/releases/{{ splunk_version }}/linux/splunkforwarder-{{ splunk_version }}-linux-2.6-amd64.deb"
+        dest: /tmp/splunkforwarder.deb
+        mode: "0644"
+
+    - name: Install Splunk Universal Forwarder
+      apt:
+        deb: /tmp/splunkforwarder.deb
+
+    - name: Copy inputs.conf
+      copy:
+        src:  ../monitoring/splunk-inputs.conf
+        dest: "{{ splunk_home }}/etc/system/local/inputs.conf"
+        owner: splunk
+        group: splunk
+        mode: "0644"
+
+    - name: Copy outputs.conf
+      copy:
+        src:  ../monitoring/splunk-outputs.conf
+        dest: "{{ splunk_home }}/etc/system/local/outputs.conf"
+        owner: splunk
+        group: splunk
+        mode: "0644"
+
+    - name: Start and enable Splunk forwarder
+      command: "{{ splunk_home }}/bin/splunk start --accept-license --answer-yes"
+      args:
+        creates: "{{ splunk_home }}/var/run/splunk/splunkd.pid"
+
+    - name: Enable Splunk forwarder at boot
+      command: "{{ splunk_home }}/bin/splunk enable boot-start"

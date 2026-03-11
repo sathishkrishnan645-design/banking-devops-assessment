@@ -1,0 +1,222 @@
+pipeline {
+    agent any
+
+    environment {
+        // ── Project ────────────────────────────────────────────────────────
+        APP_NAME        = "banking-app"
+        APP_VERSION     = "${BUILD_NUMBER}"
+
+        // ── GitHub ─────────────────────────────────────────────────────────
+        GITHUB_REPO     = "https://github.com/YOUR_USERNAME/banking-devops-assessment.git"
+        GITHUB_CREDS    = credentials('github-credentials')
+
+        // ── JFrog Artifactory ──────────────────────────────────────────────
+        JFROG_URL       = "http://3.25.174.66:8081/artifactory"
+        JFROG_REPO      = "banking-docker"
+        JFROG_CREDS     = credentials('jfrog-credentials')
+        DOCKER_IMAGE    = "3.25.174.66:8081/${JFROG_REPO}/${APP_NAME}"
+
+        // ── SonarQube ──────────────────────────────────────────────────────
+        SONAR_HOST      = "http://16.176.220.31:9000"
+        SONAR_PROJECT   = "banking-app"
+
+        // ── Deploy Target ──────────────────────────────────────────────────
+        DEPLOY_HOST     = "3.25.174.66"
+        ANSIBLE_CONTROL = "13.211.167.57"
+        APP_PORT        = "8090"
+    }
+
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timeout(time: 30, unit: 'MINUTES')
+        timestamps()
+    }
+
+    stages {
+
+        // ── Stage 1: Checkout ──────────────────────────────────────────────
+        stage('Checkout') {
+            steps {
+                echo "📥 Checking out source code..."
+                checkout scm
+                sh "git log -1 --pretty=format:'Commit: %H | Author: %an | Message: %s'"
+            }
+        }
+
+        // ── Stage 2: Install Dependencies ─────────────────────────────────
+        stage('Install Dependencies') {
+            steps {
+                echo "📦 Installing Python dependencies..."
+                dir('app') {
+                    sh '''
+                        python3 -m venv venv
+                        . venv/bin/activate
+                        pip install --upgrade pip
+                        pip install -r requirements.txt
+                        pip install pytest pytest-cov
+                    '''
+                }
+            }
+        }
+
+        // ── Stage 3: Unit Tests ────────────────────────────────────────────
+        stage('Unit Tests') {
+            steps {
+                echo "🧪 Running unit tests..."
+                dir('app') {
+                    sh '''
+                        . venv/bin/activate
+                        pytest test_app.py -v \
+                            --junitxml=test-results.xml \
+                            --cov=app \
+                            --cov-report=xml:coverage.xml \
+                            --cov-report=html:htmlcov
+                    '''
+                }
+            }
+            post {
+                always {
+                    junit 'app/test-results.xml'
+                    publishHTML(target: [
+                        allowMissing: false,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'app/htmlcov',
+                        reportFiles: 'index.html',
+                        reportName: 'Coverage Report'
+                    ])
+                }
+            }
+        }
+
+        // ── Stage 4: SonarQube Analysis ────────────────────────────────────
+        stage('SonarQube Analysis') {
+            steps {
+                echo "🔍 Running SonarQube code quality analysis..."
+                withSonarQubeEnv('SonarQube') {
+                    sh """
+                        sonar-scanner \
+                            -Dsonar.projectKey=${SONAR_PROJECT} \
+                            -Dsonar.projectName="Banking App" \
+                            -Dsonar.projectVersion=${APP_VERSION} \
+                            -Dsonar.sources=app \
+                            -Dsonar.python.coverage.reportPaths=app/coverage.xml \
+                            -Dsonar.python.xunit.reportPath=app/test-results.xml \
+                            -Dsonar.host.url=${SONAR_HOST}
+                    """
+                }
+            }
+        }
+
+        // ── Stage 5: SonarQube Quality Gate ───────────────────────────────
+        stage('Quality Gate') {
+            steps {
+                echo "🚦 Checking SonarQube Quality Gate..."
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        // ── Stage 6: Docker Build ──────────────────────────────────────────
+        stage('Docker Build') {
+            steps {
+                echo "🐳 Building Docker image..."
+                dir('app') {
+                    sh """
+                        docker build \
+                            --no-cache \
+                            --label "build.number=${BUILD_NUMBER}" \
+                            --label "build.date=\$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                            --label "git.commit=\$(git rev-parse --short HEAD)" \
+                            -t ${DOCKER_IMAGE}:${APP_VERSION} \
+                            -t ${DOCKER_IMAGE}:latest \
+                            .
+                    """
+                }
+            }
+        }
+
+        // ── Stage 7: Push to JFrog Artifactory ────────────────────────────
+        stage('Push to Artifactory') {
+            steps {
+                echo "📤 Pushing Docker image to JFrog Artifactory..."
+                sh """
+                    echo \${JFROG_CREDS_PSW} | docker login \
+                        ${JFROG_URL} \
+                        -u \${JFROG_CREDS_USR} \
+                        --password-stdin
+
+                    docker push ${DOCKER_IMAGE}:${APP_VERSION}
+                    docker push ${DOCKER_IMAGE}:latest
+
+                    echo "✅ Image pushed: ${DOCKER_IMAGE}:${APP_VERSION}"
+                """
+            }
+        }
+
+        // ── Stage 8: Deploy via Ansible ────────────────────────────────────
+        stage('Deploy') {
+            steps {
+                echo "🚀 Deploying via Ansible to ${DEPLOY_HOST}..."
+                sshagent(['ansible-ssh-key']) {
+                    sh """
+                        ssh -o StrictHostKeyChecking=no ubuntu@${ANSIBLE_CONTROL} \
+                            "cd /opt/ansible && \
+                             ansible-playbook -i inventory.ini playbook.yml \
+                             -e app_version=${APP_VERSION} \
+                             -e docker_image=${DOCKER_IMAGE} \
+                             -e jfrog_url=${JFROG_URL} \
+                             -e jfrog_user=\${JFROG_CREDS_USR} \
+                             -e jfrog_pass=\${JFROG_CREDS_PSW}"
+                    """
+                }
+            }
+        }
+
+        // ── Stage 9: Health Check ──────────────────────────────────────────
+        stage('Health Check') {
+            steps {
+                echo "❤️  Verifying application health..."
+                sh """
+                    sleep 15
+                    HTTP_CODE=\$(curl -s -o /dev/null -w "%{http_code}" \
+                        http://${DEPLOY_HOST}:${APP_PORT}/health)
+                    if [ "\$HTTP_CODE" = "200" ]; then
+                        echo "✅ Application is healthy (HTTP \$HTTP_CODE)"
+                    else
+                        echo "❌ Health check failed (HTTP \$HTTP_CODE)"
+                        exit 1
+                    fi
+                """
+            }
+        }
+
+    }
+
+    // ── Post Actions ───────────────────────────────────────────────────────────
+    post {
+        success {
+            echo """
+            ✅ ═══════════════════════════════════════════
+               PIPELINE SUCCESS
+               App Version : ${APP_VERSION}
+               Image       : ${DOCKER_IMAGE}:${APP_VERSION}
+               Live URL    : http://${DEPLOY_HOST}:${APP_PORT}
+            ═══════════════════════════════════════════
+            """
+        }
+        failure {
+            echo "❌ Pipeline FAILED at stage. Check logs above."
+        }
+        always {
+            // Clean up Docker images to save disk space
+            sh """
+                docker rmi ${DOCKER_IMAGE}:${APP_VERSION} || true
+                docker rmi ${DOCKER_IMAGE}:latest || true
+                docker image prune -f || true
+            """
+            cleanWs()
+        }
+    }
+}
