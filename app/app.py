@@ -6,19 +6,18 @@ Supports CRUD operations on bank accounts: balance, deposit, withdraw
 import os
 import logging
 from datetime import datetime
+from decimal import Decimal
 from flask import Flask, jsonify, request, abort
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.exc import SQLAlchemyError
 from functools import wraps
 
-# ── Logging setup ──────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 logger = logging.getLogger(__name__)
 
-# ── App & DB setup ─────────────────────────────────────────────────────────────
 app = Flask(__name__)
 
 DB_USER     = os.getenv("DB_USER",     "bankuser")
@@ -35,10 +34,8 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 
-# ── Models ─────────────────────────────────────────────────────────────────────
 class Account(db.Model):
     __tablename__ = "accounts"
-
     id             = db.Column(db.Integer, primary_key=True)
     account_number = db.Column(db.String(20), unique=True, nullable=False)
     owner_name     = db.Column(db.String(100), nullable=False)
@@ -56,13 +53,11 @@ class Account(db.Model):
             "updated_at":     self.updated_at.isoformat(),
         }
 
-
 class Transaction(db.Model):
     __tablename__ = "transactions"
-
     id               = db.Column(db.Integer, primary_key=True)
     account_id       = db.Column(db.Integer, db.ForeignKey("accounts.id"), nullable=False)
-    transaction_type = db.Column(db.String(10), nullable=False)   # deposit / withdraw
+    transaction_type = db.Column(db.String(10), nullable=False)
     amount           = db.Column(db.Numeric(15, 2), nullable=False)
     balance_after    = db.Column(db.Numeric(15, 2), nullable=False)
     timestamp        = db.Column(db.DateTime, default=datetime.utcnow)
@@ -77,7 +72,6 @@ class Transaction(db.Model):
             "timestamp":        self.timestamp.isoformat(),
         }
 
-# ── Security: API-key auth decorator ──────────────────────────────────────────
 def require_api_key(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -88,70 +82,56 @@ def require_api_key(f):
         return f(*args, **kwargs)
     return decorated
 
-# ── Health check ───────────────────────────────────────────────────────────────
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "healthy", "timestamp": datetime.utcnow().isoformat()}), 200
 
-# ── Account endpoints ──────────────────────────────────────────────────────────
-
 @app.route("/accounts", methods=["POST"])
 @require_api_key
 def create_account():
-    """CREATE — open a new bank account."""
     data = request.get_json()
     if not data or not data.get("account_number") or not data.get("owner_name"):
         abort(400, description="account_number and owner_name are required")
-
     if Account.query.filter_by(account_number=data["account_number"]).first():
         abort(409, description="Account number already exists")
-
     account = Account(
         account_number=data["account_number"],
         owner_name=data["owner_name"],
-        balance=data.get("initial_balance", 0.00),
+        balance=Decimal(str(data.get("initial_balance", 0.00))),
     )
     db.session.add(account)
     db.session.commit()
     logger.info("Account created: %s", account.account_number)
     return jsonify({"message": "Account created", "account": account.to_dict()}), 201
 
-
 @app.route("/accounts/<account_number>/balance", methods=["GET"])
 @require_api_key
 def get_balance(account_number):
-    """READ — get current balance."""
     account = Account.query.filter_by(account_number=account_number).first_or_404(
         description=f"Account {account_number} not found"
     )
-    logger.info("Balance checked for account: %s", account_number)
     return jsonify({
         "account_number": account.account_number,
         "owner_name":     account.owner_name,
         "balance":        float(account.balance),
     }), 200
 
-
 @app.route("/accounts/<account_number>/deposit", methods=["POST"])
 @require_api_key
 def deposit(account_number):
-    """UPDATE — deposit money into account."""
     account = Account.query.filter_by(account_number=account_number).first_or_404(
         description=f"Account {account_number} not found"
     )
     data = request.get_json()
     amount = data.get("amount") if data else None
-
-    if not amount or float(amount) <= 0:
+    if not amount or Decimal(str(amount)) <= 0:
         abort(400, description="A positive amount is required")
-
-    account.balance    += float(amount)
-    account.updated_at  = datetime.utcnow()
-
+    account.balance = account.balance + Decimal(str(amount))
+    account.updated_at = datetime.utcnow()
     txn = Transaction(
         account_id=account.id,
         transaction_type="deposit",
-        amount=amount,
+        amount=Decimal(str(amount)),
         balance_after=account.balance,
     )
     db.session.add(txn)
@@ -165,29 +145,24 @@ def deposit(account_number):
         "transaction":    txn.to_dict(),
     }), 200
 
-
 @app.route("/accounts/<account_number>/withdraw", methods=["POST"])
 @require_api_key
 def withdraw(account_number):
-    """UPDATE — withdraw money from account."""
     account = Account.query.filter_by(account_number=account_number).first_or_404(
         description=f"Account {account_number} not found"
     )
     data = request.get_json()
     amount = data.get("amount") if data else None
-
-    if not amount or float(amount) <= 0:
+    if not amount or Decimal(str(amount)) <= 0:
         abort(400, description="A positive amount is required")
-    if float(account.balance) < float(amount):
+    if account.balance < Decimal(str(amount)):
         abort(400, description="Insufficient funds")
-
-    account.balance    -= float(amount)
-    account.updated_at  = datetime.utcnow()
-
+    account.balance = account.balance - Decimal(str(amount))
+    account.updated_at = datetime.utcnow()
     txn = Transaction(
         account_id=account.id,
         transaction_type="withdraw",
-        amount=amount,
+        amount=Decimal(str(amount)),
         balance_after=account.balance,
     )
     db.session.add(txn)
@@ -201,27 +176,21 @@ def withdraw(account_number):
         "transaction":    txn.to_dict(),
     }), 200
 
-
 @app.route("/accounts/<account_number>", methods=["DELETE"])
 @require_api_key
 def delete_account(account_number):
-    """DELETE — close a bank account."""
     account = Account.query.filter_by(account_number=account_number).first_or_404(
         description=f"Account {account_number} not found"
     )
     if float(account.balance) > 0:
         abort(400, description="Cannot close account with non-zero balance")
-
     db.session.delete(account)
     db.session.commit()
-    logger.info("Account deleted: %s", account_number)
     return jsonify({"message": f"Account {account_number} closed successfully"}), 200
-
 
 @app.route("/accounts/<account_number>/transactions", methods=["GET"])
 @require_api_key
 def get_transactions(account_number):
-    """READ — get transaction history."""
     account = Account.query.filter_by(account_number=account_number).first_or_404(
         description=f"Account {account_number} not found"
     )
@@ -232,8 +201,6 @@ def get_transactions(account_number):
         "transactions":   [t.to_dict() for t in txns],
     }), 200
 
-
-# ── Error handlers ─────────────────────────────────────────────────────────────
 @app.errorhandler(400)
 def bad_request(e):
     return jsonify({"error": "Bad Request", "message": str(e.description)}), 400
@@ -255,8 +222,6 @@ def internal_error(e):
     logger.error("Internal server error: %s", str(e))
     return jsonify({"error": "Internal Server Error"}), 500
 
-
-# ── DB init & run ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
