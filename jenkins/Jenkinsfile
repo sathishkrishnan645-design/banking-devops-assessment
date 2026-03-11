@@ -2,17 +2,20 @@ pipeline {
     agent any
 
     environment {
-        APP_NAME    = "banking-app"
-        APP_VERSION = "${BUILD_NUMBER}"
-        DEPLOY_HOST = "172.31.8.218"
-        DEPLOY_USER = "ec2-user"
-        SSH_KEY     = "/var/lib/jenkins/.ssh/devops-lab-key.pem"
-        APP_PORT    = "8090"
-        DB_HOST     = "172.31.8.218"
-        DB_NAME     = "bankdb"
-        DB_USER     = "bankuser"
-        DB_PASSWORD = "bankpassword123"
-        API_KEY     = "banking-secret-key-2024"
+        APP_NAME      = "banking-app"
+        APP_VERSION   = "${BUILD_NUMBER}"
+        DEPLOY_HOST   = "172.31.8.218"
+        DEPLOY_USER   = "ec2-user"
+        SSH_KEY       = "/var/lib/jenkins/.ssh/devops-lab-key.pem"
+        APP_PORT      = "8090"
+        DB_HOST       = "172.31.8.218"
+        DB_NAME       = "bankdb"
+        DB_USER       = "bankuser"
+        DB_PASSWORD   = "bankpassword123"
+        API_KEY       = "banking-secret-key-2024"
+        NEXUS_REGISTRY = "16.176.220.31:8082"
+        NEXUS_USER    = "admin"
+        NEXUS_PASS    = "Admin@123"
     }
 
     options {
@@ -23,7 +26,6 @@ pipeline {
 
     stages {
 
-        // ── Stage 1: Checkout ─────────────────────────────────────────────
         stage('Checkout') {
             steps {
                 echo "📥 Checking out source code..."
@@ -34,7 +36,6 @@ pipeline {
             }
         }
 
-        // ── Stage 2: Install Dependencies ────────────────────────────────
         stage('Install Dependencies') {
             steps {
                 echo "📦 Installing Python dependencies..."
@@ -51,7 +52,6 @@ pipeline {
             }
         }
 
-        // ── Stage 3: Unit Tests ───────────────────────────────────────────
         stage('Unit Tests') {
             steps {
                 echo "🧪 Running unit tests..."
@@ -75,7 +75,6 @@ pipeline {
             }
         }
 
-        // ── Stage 4: SonarQube Analysis ───────────────────────────────────
         stage('SonarQube Analysis') {
             steps {
                 echo "🔍 Running SonarQube analysis..."
@@ -95,7 +94,6 @@ pipeline {
             }
         }
 
-        // ── Stage 5: Docker Build ─────────────────────────────────────────
         stage('Docker Build') {
             steps {
                 echo "🐳 Building Docker image..."
@@ -109,14 +107,29 @@ pipeline {
             }
         }
 
-        // ── Stage 6: Deploy to Server ─────────────────────────────────────
+        stage('Push to Nexus') {
+            steps {
+                echo "📤 Pushing Docker image to Nexus..."
+                sh """
+                    docker login ${NEXUS_REGISTRY} -u ${NEXUS_USER} -p ${NEXUS_PASS}
+
+                    docker tag ${APP_NAME}:${APP_VERSION} ${NEXUS_REGISTRY}/${APP_NAME}:${APP_VERSION}
+                    docker tag ${APP_NAME}:${APP_VERSION} ${NEXUS_REGISTRY}/${APP_NAME}:latest
+
+                    docker push ${NEXUS_REGISTRY}/${APP_NAME}:${APP_VERSION}
+                    docker push ${NEXUS_REGISTRY}/${APP_NAME}:latest
+
+                    echo "✅ Image pushed: ${NEXUS_REGISTRY}/${APP_NAME}:${APP_VERSION}"
+                """
+            }
+        }
+
         stage('Deploy to Server') {
             steps {
                 echo "🚀 Deploying to ${DEPLOY_HOST}..."
                 sh """
                     set -e
 
-                    # Save image to tar and transfer via SSH
                     echo "📦 Transferring Docker image..."
                     docker save ${APP_NAME}:${APP_VERSION} | \
                         ssh -o StrictHostKeyChecking=no \
@@ -146,7 +159,6 @@ pipeline {
                             -e API_KEY=${API_KEY} \
                             ${APP_NAME}:${APP_VERSION}
 
-                        echo 'Container started:'
                         sudo docker ps | grep banking-app
                         "
 
@@ -155,14 +167,11 @@ pipeline {
             }
         }
 
-        // ── Stage 7: Health Check ─────────────────────────────────────────
         stage('Health Check') {
             steps {
                 echo "❤️  Verifying application health..."
                 sh """
-                    echo "Waiting 15s for app to start..."
                     sleep 15
-
                     for i in 1 2 3 4 5; do
                         HTTP_CODE=\$(curl -s -o /dev/null -w "%{http_code}" \
                             --connect-timeout 10 \
@@ -174,8 +183,7 @@ pipeline {
                         fi
                         sleep 5
                     done
-
-                    echo "❌ Health check failed after 5 attempts"
+                    echo "❌ Health check failed"
                     exit 1
                 """
             }
