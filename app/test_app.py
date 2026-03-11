@@ -3,18 +3,24 @@ Unit tests for the Banking REST API
 Run with: pytest test_app.py -v
 """
 
+import os
 import pytest
 import json
-from app import app, db, Account
 
-API_KEY = "changeme-secret-key"
+# ── MUST set env vars BEFORE importing app ─────────────────────────────────────
+os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
+os.environ.setdefault("API_KEY", "banking-secret-key-2024")
+
+from app import app, db, Account  # noqa: E402
+
+API_KEY = os.environ.get("API_KEY", "banking-secret-key-2024")
 HEADERS = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
 
 
 @pytest.fixture
 def client():
     app.config["TESTING"] = True
-    app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///:memory:"
+    app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "sqlite:///:memory:")
     with app.app_context():
         db.create_all()
         yield app.test_client()
@@ -42,7 +48,7 @@ def test_create_account(client):
     assert res.status_code == 201
     data = res.get_json()
     assert data["account"]["account_number"] == "ACC001"
-    assert data["account"]["balance"] == 1000.00
+    assert float(data["account"]["balance"]) == 1000.00
 
 
 def test_create_duplicate_account(client):
@@ -61,7 +67,7 @@ def test_get_balance(client):
     create_account(client)
     res = client.get("/accounts/ACC001/balance", headers=HEADERS)
     assert res.status_code == 200
-    assert res.get_json()["balance"] == 1000.00
+    assert float(res.get_json()["balance"]) == 1000.00
 
 
 def test_get_balance_not_found(client):
@@ -74,7 +80,7 @@ def test_deposit(client):
     create_account(client)
     res = client.post("/accounts/ACC001/deposit", headers=HEADERS, json={"amount": 500})
     assert res.status_code == 200
-    assert res.get_json()["new_balance"] == 1500.00
+    assert float(res.get_json()["new_balance"]) == 1500.00
 
 
 def test_deposit_negative_amount(client):
@@ -88,7 +94,7 @@ def test_withdraw(client):
     create_account(client)
     res = client.post("/accounts/ACC001/withdraw", headers=HEADERS, json={"amount": 200})
     assert res.status_code == 200
-    assert res.get_json()["new_balance"] == 800.00
+    assert float(res.get_json()["new_balance"]) == 800.00
 
 
 def test_withdraw_insufficient_funds(client):
