@@ -6,7 +6,6 @@ pipeline {
         DEPLOY_HOST  = "3.25.174.66"
         APP_PORT     = "8090"
         DB_HOST      = "172.31.8.218"
-        SONAR_HOST   = "http://16.176.220.31:9000"
         GIT_REPO     = "https://github.com/sathishkrishnan645-design/banking-devops-assessment.git"
     }
 
@@ -14,7 +13,7 @@ pipeline {
 
         stage('Checkout') {
             steps {
-                echo "📥 Checking out source code from GitHub..."
+                echo "📥 Checking out source code..."
                 git branch: 'master',
                     credentialsId: 'github-credentials',
                     url: "${GIT_REPO}"
@@ -31,7 +30,7 @@ pipeline {
                     . venv/bin/activate
                     pip install --upgrade pip --quiet
                     pip install -r requirements.txt --quiet
-                    pip install pytest pytest-cov --quiet
+                    pip install pytest pytest-cov pytest-flask --quiet
                     echo "✅ Dependencies installed"
                 '''
             }
@@ -43,7 +42,6 @@ pipeline {
                 sh '''
                     cd app
                     . venv/bin/activate
-                    pip install pytest-flask --quiet
                     pytest test_app.py -v \
                         --junitxml=test-results.xml \
                         --cov=app \
@@ -69,9 +67,10 @@ pipeline {
                             -Dsonar.projectKey=banking-app \
                             -Dsonar.projectName="Banking App" \
                             -Dsonar.sources=app \
+                            -Dsonar.exclusions=**/venv/**,**/__pycache__/**,**/test_*.py,**/coverage.xml \
                             -Dsonar.python.coverage.reportPaths=app/coverage.xml \
-                            -Dsonar.python.xunit.reportPath=app/test-results.xml \
-                            -Dsonar.language=py
+                            -Dsonar.language=py \
+                            -Dsonar.scanner.javaOpts="-Xmx512m"
                         echo "✅ SonarQube analysis complete"
                     '''
                 }
@@ -95,16 +94,16 @@ pipeline {
                 echo "🚀 Deploying to ${DEPLOY_HOST}..."
                 sshagent(['ansible-ssh-key']) {
                     sh '''
+                        echo "Copying image to deploy target..."
                         docker save ${APP_NAME}:latest | \
                         ssh -o StrictHostKeyChecking=no ec2-user@${DEPLOY_HOST} \
                             "docker load"
 
-                        ssh -o StrictHostKeyChecking=no ec2-user@${DEPLOY_HOST} bash << 'DEPLOY'
-                            echo "Stopping old container..."
-                            sudo docker stop banking-app 2>/dev/null || true
-                            sudo docker rm banking-app 2>/dev/null || true
-                            echo "Starting new container..."
-                            sudo docker run -d \
+                        echo "Starting new container on deploy target..."
+                        ssh -o StrictHostKeyChecking=no ec2-user@${DEPLOY_HOST} \
+                            "sudo docker stop banking-app 2>/dev/null || true && \
+                             sudo docker rm banking-app 2>/dev/null || true && \
+                             sudo docker run -d \
                                 --name banking-app \
                                 --restart unless-stopped \
                                 -p 8090:8090 \
@@ -114,9 +113,8 @@ pipeline {
                                 -e DB_USER=bankuser \
                                 -e DB_PASSWORD=bankpassword123 \
                                 -e API_KEY=banking-secret-key-2024 \
-                                banking-app:latest
-                            sudo docker ps | grep banking-app
-DEPLOY
+                                banking-app:latest && \
+                             sudo docker ps | grep banking-app"
                         echo "✅ Deployment complete"
                     '''
                 }
@@ -127,7 +125,7 @@ DEPLOY
             steps {
                 echo "❤️  Verifying application health..."
                 sh '''
-                    sleep 10
+                    sleep 15
                     HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
                         http://${DEPLOY_HOST}:${APP_PORT}/health)
                     if [ "$HTTP_CODE" = "200" ]; then
