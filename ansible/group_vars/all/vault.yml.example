@@ -1,0 +1,20 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# Ansible Vault - Encrypted Secrets
+# To encrypt: ansible-vault encrypt group_vars/all/vault.yml
+# To edit:    ansible-vault edit group_vars/all/vault.yml
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Nexus Registry
+vault_nexus_user:     "admin"
+vault_nexus_pass:     "Admin@123"
+vault_nexus_url:      "http://16.176.220.31:8082"
+
+# Database
+vault_db_user:        "bankuser"
+vault_db_password:    "your-secure-db-password"
+vault_db_host:        "localhost"
+vault_db_port:        "5432"
+vault_db_name:        "bankdb"
+
+# Application
+vault_api_key:        "your-secret-api-key"
