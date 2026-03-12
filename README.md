@@ -223,3 +223,4 @@ All authenticated endpoints require header: `X-API-Key: <your-api-key>`
 | Deployment | Ansible |
 | Monitoring | Splunk |
 | Cloud | AWS (EC2, RDS, ALB, VPC) |
+
