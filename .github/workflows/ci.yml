@@ -1,0 +1,200 @@
+name: Banking App CI/CD
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+env:
+  APP_NAME: banking-app
+  PYTHON_VERSION: "3.11"
+  DOCKER_REGISTRY: ${{ secrets.NEXUS_REGISTRY }}
+
+jobs:
+
+  # ── Job 1: Unit Tests ─────────────────────────────────────────────────────
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('app/requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          cd app
+          python -m venv venv
+          . venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-flask
+
+      - name: Run unit tests
+        env:
+          DATABASE_URL: sqlite:///:memory:
+          API_KEY: banking-secret-key-2024
+        run: |
+          cd app
+          . venv/bin/activate
+          pytest test_app.py -v \
+            --junitxml=test-results.xml \
+            --cov=app \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: |
+            app/test-results.xml
+            app/coverage.xml
+
+  # ── Job 2: Code Quality (SonarQube) ──────────────────────────────────────
+  sonarqube:
+    name: SonarQube Analysis
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: test-results
+          path: app/
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@master
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        with:
+          args: >
+            -Dsonar.projectKey=banking-app
+            -Dsonar.projectName="Banking App"
+            -Dsonar.sources=app
+            -Dsonar.exclusions=**/venv/**,**/__pycache__/**,**/test_*.py
+            -Dsonar.python.coverage.reportPaths=app/coverage.xml
+
+  # ── Job 3: Docker Build & Push ────────────────────────────────────────────
+  build:
+    name: Docker Build & Push
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Nexus Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.NEXUS_REGISTRY }}
+          username: ${{ secrets.NEXUS_USERNAME }}
+          password: ${{ secrets.NEXUS_PASSWORD }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./app
+          push: true
+          tags: |
+            ${{ secrets.NEXUS_REGISTRY }}/banking-app:${{ github.run_number }}
+            ${{ secrets.NEXUS_REGISTRY }}/banking-app:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Image summary
+        run: |
+          echo "✅ Pushed: ${{ secrets.NEXUS_REGISTRY }}/banking-app:${{ github.run_number }}"
+
+  # ── Job 4: Deploy ─────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to AWS
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/master'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy via Ansible
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ec2-user
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            sudo docker pull ${{ secrets.NEXUS_REGISTRY }}/banking-app:latest
+            sudo docker stop banking-app || true
+            sudo docker rm banking-app || true
+            sudo docker run -d \
+              --name banking-app \
+              --restart unless-stopped \
+              -p 8090:8090 \
+              -e DB_HOST=${{ secrets.DB_HOST }} \
+              -e DB_PORT=5432 \
+              -e DB_NAME=${{ secrets.DB_NAME }} \
+              -e DB_USER=${{ secrets.DB_USER }} \
+              -e DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
+              -e API_KEY=${{ secrets.API_KEY }} \
+              ${{ secrets.NEXUS_REGISTRY }}/banking-app:latest
+
+      - name: Health Check
+        run: |
+          sleep 15
+          for i in 1 2 3 4 5; do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+              http://${{ secrets.DEPLOY_HOST }}:8090/health || echo "000")
+            echo "Attempt $i: HTTP $HTTP_CODE"
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "✅ Application is healthy!"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "❌ Health check failed"
+          exit 1
+
+  # ── Job 5: Notify ─────────────────────────────────────────────────────────
+  notify:
+    name: Notify
+    runs-on: ubuntu-latest
+    needs: [test, build, deploy]
+    if: always()
+
+    steps:
+      - name: Pipeline Summary
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Pipeline: ${{ github.workflow }}"
+          echo "Branch:   ${{ github.ref_name }}"
+          echo "Commit:   ${{ github.sha }}"
+          echo "Tests:    ${{ needs.test.result }}"
+          echo "Build:    ${{ needs.build.result }}"
+          echo "Deploy:   ${{ needs.deploy.result }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
