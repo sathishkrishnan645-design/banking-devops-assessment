@@ -8,7 +8,7 @@ set -euo pipefail
 
 # ── Config ────────────────────────────────────────────────────────────────────
 APP_NAME="banking-app"
-NEXUS_REGISTRY="${NEXUS_REGISTRY:-16.176.220.31:8082}"
+NEXUS_REGISTRY="${NEXUS_REGISTRY:-3.106.152.10:8082}"
 VERSION="${1:-latest}"
 APP_PORT="${APP_PORT:-8090}"
 DB_HOST="${DB_HOST:-172.31.8.218}"

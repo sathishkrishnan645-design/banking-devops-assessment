@@ -9,7 +9,7 @@
   vars:
     splunk_version:   "9.2.1"
     splunk_home:      "/opt/splunkforwarder"
-    splunk_indexer:   "3.27.228.83"
+    splunk_indexer:   "52.64.128.1"
     splunk_port:      "9997"
 
   tasks:

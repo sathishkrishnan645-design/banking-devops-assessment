@@ -13,7 +13,7 @@ pipeline {
         DB_USER       = "bankuser"
         DB_PASSWORD   = "bankpassword123"
         API_KEY       = "banking-secret-key-2024"
-        NEXUS_REGISTRY = "16.176.220.31:8082"
+        NEXUS_REGISTRY = "3.106.152.10:8082"
         NEXUS_USER    = "admin"
         NEXUS_PASS    = "Admin@123"
     }

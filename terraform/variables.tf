@@ -59,5 +59,5 @@ variable "ssl_certificate_arn" {
 variable "ansible_control_ip" {
   description = "Ansible control node IP for SSH access rule"
   type        = string
-  default     = "13.211.167.57"
+  default     = "13.55.121.11"
 }

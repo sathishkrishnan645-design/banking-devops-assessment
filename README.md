@@ -35,7 +35,7 @@ INTERNET
 
 ┌──────────────┐  ┌──────────────────┐  ┌─────────────┐  ┌──────────────┐
 │   Jenkins    │  │ SonarQube+Nexus  │  │   Ansible   │  │    Splunk    │
-│ 13.210.247.62│  │  16.176.220.31   │  │13.211.167.57│  │ 3.27.228.83  │
+│ 54.252.6.48│  │  3.106.152.10   │  │13.55.121.11│  │ 52.64.128.1  │
 │    :8080     │  │  :9000 / :8081   │  │             │  │    :8000     │
 └──────────────┘  └──────────────────┘  └─────────────┘  └──────────────┘
 ```
@@ -46,11 +46,11 @@ INTERNET
 
 | Instance | Role | Public IP | Private IP | Type |
 |----------|------|-----------|------------|------|
-| Instance 1 | CI Server (Jenkins) | 13.210.247.62 | 172.31.2.141 | t3.medium |
-| Instance 2 | Code Quality (SonarQube + Nexus) | 16.176.220.31 | 172.31.15.55 | t2.large |
-| Instance 3 | Deploy Target | 3.25.111.45 | 172.31.8.218 | t3.small |
-| Instance 4 | Ansible Control Node | 13.211.167.57 | 172.31.6.85 | t3.small |
-| Instance 5 | Monitoring (Splunk) | 3.27.228.83 | 172.31.7.82 | t3.medium |
+| Instance 1 | CI Server (Jenkins) | 54.252.6.48 | 172.31.2.141 | t3.medium |
+| Instance 2 | Code Quality (SonarQube + Nexus) | 3.106.152.10 | 172.31.15.55 | t2.large |
+| Instance 3 | Deploy Target | 3.104.203.56 | 172.31.8.218 | t3.small |
+| Instance 4 | Ansible Control Node | 13.55.121.11 | 172.31.6.85 | t3.small |
+| Instance 5 | Monitoring (Splunk) | 52.64.128.1 | 172.31.7.82 | t3.medium |
 
 ---
 
@@ -63,7 +63,7 @@ Checkout → Install Dependencies → Unit Tests (15/15) →
 SonarQube Analysis → Docker Build → Push to Nexus → Deploy → Health Check ✅
 ```
 
-**Jenkins:** http://13.210.247.62:8080 | Job: `banking-app-pipeline`
+**Jenkins:** http://54.252.6.48:8080 | Job: `banking-app-pipeline`
 
 ---
 
@@ -200,7 +200,7 @@ pytest test_app.py -v --cov=app
 ## 📊 Monitoring
 
 ### Splunk
-- URL: http://3.27.228.83:8000
+- URL: http://52.64.128.1:8000
 - Search: `index=main sourcetype=docker_logs`
 - Forwarder installed on app server → forwards Docker logs
 
@@ -219,10 +219,10 @@ pytest test_app.py -v --cov=app
 | Service | URL |
 |---------|-----|
 | Banking App (ALB) | http://banking-alb-1942364575.ap-southeast-2.elb.amazonaws.com |
-| Jenkins | http://13.210.247.62:8080 |
-| SonarQube | http://16.176.220.31:9000 |
-| Nexus | http://16.176.220.31:8081 |
-| Splunk | http://3.27.228.83:8000 |
+| Jenkins | http://54.252.6.48:8080 |
+| SonarQube | http://3.106.152.10:9000 |
+| Nexus | http://3.106.152.10:8081 |
+| Splunk | http://52.64.128.1:8000 |
 
 ---
 
