@@ -13,9 +13,11 @@ pipeline {
         DB_USER       = "bankuser"
         DB_PASSWORD   = "bankpassword123"
         API_KEY       = "banking-secret-key-2024"
-        NEXUS_REGISTRY = "3.106.152.10:8082"
-        NEXUS_USER    = "admin"
-        NEXUS_PASS    = "Admin@123"
+        // ── JFrog Artifactory (replaces Nexus) ──
+        JFROG_URL     = "http://3.106.152.10:8081/artifactory"
+        JFROG_REPO    = "banking-docker"
+        JFROG_USER    = "admin"
+        JFROG_PASS    = "password"
     }
 
     options {
@@ -107,19 +109,40 @@ pipeline {
             }
         }
 
-        stage('Push to Nexus') {
+        stage('Push to JFrog') {
             steps {
-                echo "📤 Pushing Docker image to Nexus..."
+                echo "📤 Pushing Docker image to JFrog Artifactory..."
                 sh """
-                    docker login ${NEXUS_REGISTRY} -u ${NEXUS_USER} -p ${NEXUS_PASS}
+                    # Save Docker image as tar file
+                    echo "💾 Saving image as tar: ${APP_NAME}:${APP_VERSION}..."
+                    docker save ${APP_NAME}:${APP_VERSION} -o /tmp/${APP_NAME}-${APP_VERSION}.tar
 
-                    docker tag ${APP_NAME}:${APP_VERSION} ${NEXUS_REGISTRY}/${APP_NAME}:${APP_VERSION}
-                    docker tag ${APP_NAME}:${APP_VERSION} ${NEXUS_REGISTRY}/${APP_NAME}:latest
+                    # Upload versioned image to JFrog Generic repo
+                    echo "⬆️  Uploading ${APP_NAME}-${APP_VERSION}.tar to JFrog..."
+                    curl -u ${JFROG_USER}:${JFROG_PASS} \
+                        -X PUT \
+                        "${JFROG_URL}/${JFROG_REPO}/${APP_NAME}-${APP_VERSION}.tar" \
+                        -T /tmp/${APP_NAME}-${APP_VERSION}.tar \
+                        --progress-bar
 
-                    docker push ${NEXUS_REGISTRY}/${APP_NAME}:${APP_VERSION}
-                    docker push ${NEXUS_REGISTRY}/${APP_NAME}:latest
+                    # Also upload as latest
+                    echo "⬆️  Uploading ${APP_NAME}-latest.tar to JFrog..."
+                    curl -u ${JFROG_USER}:${JFROG_PASS} \
+                        -X PUT \
+                        "${JFROG_URL}/${JFROG_REPO}/${APP_NAME}-latest.tar" \
+                        -T /tmp/${APP_NAME}-${APP_VERSION}.tar \
+                        --progress-bar
 
-                    echo "✅ Image pushed: ${NEXUS_REGISTRY}/${APP_NAME}:${APP_VERSION}"
+                    # Verify upload via JFrog Storage API
+                    echo "🔍 Verifying upload in JFrog..."
+                    curl -s -u ${JFROG_USER}:${JFROG_PASS} \
+                        "${JFROG_URL}/api/storage/${JFROG_REPO}/${APP_NAME}-${APP_VERSION}.tar" \
+                        | grep -o '"size" : "[^"]*"'
+
+                    # Cleanup local tar
+                    rm -f /tmp/${APP_NAME}-${APP_VERSION}.tar
+
+                    echo "✅ Image pushed to JFrog: ${JFROG_URL}/${JFROG_REPO}/${APP_NAME}-${APP_VERSION}.tar"
                 """
             }
         }
@@ -130,7 +153,7 @@ pipeline {
                 sh """
                     set -e
 
-                    echo "📦 Transferring Docker image..."
+                    echo "📦 Transferring Docker image to deploy server..."
                     docker save ${APP_NAME}:${APP_VERSION} | \
                         ssh -o StrictHostKeyChecking=no \
                             -o ConnectTimeout=30 \
@@ -193,7 +216,7 @@ pipeline {
 
     post {
         success {
-            echo "✅ Pipeline SUCCESS - ${APP_NAME}:${APP_VERSION} deployed to http://${DEPLOY_HOST}:${APP_PORT}"
+            echo "✅ Pipeline SUCCESS - ${APP_NAME}:${APP_VERSION} deployed and archived in JFrog"
         }
         failure {
             echo "❌ Pipeline FAILED - check logs above"
