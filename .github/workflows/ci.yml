@@ -181,7 +181,7 @@ jobs:
     if: github.ref == 'refs/heads/master'
     environment:
       name: staging
-      url: http://172.31.8.218:8090
+      url: http://3.104.203.56:8090
 
     steps:
       - name: Download image artifact
