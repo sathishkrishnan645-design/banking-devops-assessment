@@ -5,7 +5,7 @@ on:
     branches: [ master, main ]
   pull_request:
     branches: [ master, main ]
-  # ── Manual trigger with inputs ─────────────────────────────────────────
+  # -------- Manual trigger with inputs --------------------------------------------------------------------------------------------------------------------------------------------------------------------
   workflow_dispatch:
     inputs:
       environment:
@@ -21,7 +21,7 @@ on:
         required: false
         default: false
         type: boolean
-  # ── Scheduled nightly build ────────────────────────────────────────────
+  # -------- Scheduled nightly build --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
   schedule:
     - cron: '0 0 * * *'  # Midnight UTC daily
 
@@ -31,7 +31,7 @@ env:
 
 jobs:
 
-  # ── Job 1: Matrix Unit Tests ───────────────────────────────────────────
+  # -------- Job 1: Matrix Unit Tests ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
   test:
     name: Unit Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
@@ -89,7 +89,7 @@ jobs:
             app/test-results-${{ matrix.python-version }}.xml
             app/coverage-${{ matrix.python-version }}.xml
 
-  # ── Job 2: SonarQube Analysis ──────────────────────────────────────────
+  # -------- Job 2: SonarQube Analysis ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
   sonarqube:
     name: SonarQube Analysis
     runs-on: ubuntu-latest
@@ -123,7 +123,7 @@ jobs:
             -Dsonar.exclusions=**/venv/**,**/__pycache__/**,**/test_*.py
             -Dsonar.python.coverage.reportPaths=app/coverage.xml
 
-  # ── Job 3: Docker Build & Push to JFrog ───────────────────────────────
+  # -------- Job 3: Docker Build & Push to JFrog ----------------------------------------------------------------------------------------------------------------------------
   build:
     name: Docker Build & Push to JFrog
     runs-on: ubuntu-latest
@@ -173,7 +173,7 @@ jobs:
           path: /tmp/${{ env.APP_NAME }}-${{ steps.meta.outputs.tag }}.tar
           retention-days: 1
 
-  # ── Job 4: Deploy to Staging ───────────────────────────────────────────
+  # -------- Job 4: Deploy to Staging ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
@@ -230,7 +230,7 @@ jobs:
           echo "❌ Staging health check failed"
           exit 1
 
-  # ── Job 5: Deploy to Production (with approval) ────────────────────────
+  # -------- Job 5: Deploy to Production (with approval) ------------------------------------------------------------------------------------------------
   deploy-production:
     name: Deploy to Production
     runs-on: ubuntu-latest
@@ -264,7 +264,7 @@ jobs:
             echo "⚠️ ALB check returned $HTTP_CODE"
           fi
 
-  # ── Job 6: Notify ──────────────────────────────────────────────────────
+  # -------- Job 6: Notify ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
   notify:
     name: Pipeline Summary
     runs-on: ubuntu-latest
@@ -274,19 +274,19 @@ jobs:
     steps:
       - name: Pipeline Summary
         run: |
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "------------------------------------------------------------------------------------------------------------------------------------------------"
           echo "🏦 Banking App Pipeline Summary"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "------------------------------------------------------------------------------------------------------------------------------------------------"
           echo "Workflow : ${{ github.workflow }}"
           echo "Trigger  : ${{ github.event_name }}"
           echo "Branch   : ${{ github.ref_name }}"
           echo "Commit   : ${{ github.sha }}"
           echo "Run #    : ${{ github.run_number }}"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "------------------------------------------------------------------------------------------------------------------------------------------------"
           echo "Tests    : ${{ needs.test.result }}"
           echo "Sonar    : ${{ needs.sonarqube.result }}"
           echo "Build    : ${{ needs.build.result }}"
           echo "Staging  : ${{ needs.deploy-staging.result }}"
           echo "Prod     : ${{ needs.deploy-production.result }}"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "------------------------------------------------------------------------------------------------------------------------------------------------"
 ```
