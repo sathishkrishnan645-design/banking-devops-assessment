@@ -164,7 +164,7 @@ jobs:
             -T /tmp/${{ env.APP_NAME }}-${{ steps.meta.outputs.tag }}.tar \
             --progress-bar || echo "JFrog upload skipped (VPC only accessible from AWS)"
 
-          echo "✅ Build complete: ${{ env.APP_NAME }}:${{ steps.meta.outputs.tag }}"
+          echo " Build complete: ${{ env.APP_NAME }}:${{ steps.meta.outputs.tag }}"
 
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
@@ -222,7 +222,7 @@ jobs:
               http://${{ secrets.DEPLOY_HOST }}:8090/health || echo "000")
             echo "Attempt $i: HTTP $HTTP_CODE"
             if [ "$HTTP_CODE" = "200" ]; then
-              echo "✅ Staging is healthy!"
+              echo " Staging is healthy!"
               exit 0
             fi
             sleep 5
@@ -250,7 +250,7 @@ jobs:
           script: |
             echo "Production deployment approved and executing..."
             sudo docker ps | grep banking-app
-            echo "✅ Production deployment complete!"
+            echo " Production deployment complete!"
 
       - name: Verify via ALB
         run: |
@@ -259,9 +259,9 @@ jobs:
             http://banking-alb-1942364575.ap-southeast-2.elb.amazonaws.com/health)
           echo "ALB Health Check: HTTP $HTTP_CODE"
           if [ "$HTTP_CODE" = "200" ]; then
-            echo "✅ Production verified via ALB!"
+            echo " Production verified via ALB!"
           else
-            echo "⚠️ ALB check returned $HTTP_CODE"
+            echo " ALB check returned $HTTP_CODE"
           fi
 
   # -------- Job 6: Notify ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
