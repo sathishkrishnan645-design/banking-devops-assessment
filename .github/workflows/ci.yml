@@ -264,7 +264,8 @@ jobs:
             echo " ALB check returned $HTTP_CODE"
           fi
 
-  # -------- Job 6: Notify ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+# Job 6: Notify
   notify:
     name: Pipeline Summary
     runs-on: ubuntu-latest
@@ -274,19 +275,17 @@ jobs:
     steps:
       - name: Pipeline Summary
         run: |
-          echo "------------------------------------------------------------------------------------------------------------------------------------------------"
-          echo "🏦 Banking App Pipeline Summary"
-          echo "------------------------------------------------------------------------------------------------------------------------------------------------"
+          echo "Banking App Pipeline Summary"
+          echo "------------------------------------"
           echo "Workflow : ${{ github.workflow }}"
           echo "Trigger  : ${{ github.event_name }}"
           echo "Branch   : ${{ github.ref_name }}"
           echo "Commit   : ${{ github.sha }}"
-          echo "Run #    : ${{ github.run_number }}"
-          echo "------------------------------------------------------------------------------------------------------------------------------------------------"
+          echo "Run No   : ${{ github.run_number }}"
+          echo "------------------------------------"
           echo "Tests    : ${{ needs.test.result }}"
           echo "Sonar    : ${{ needs.sonarqube.result }}"
           echo "Build    : ${{ needs.build.result }}"
           echo "Staging  : ${{ needs.deploy-staging.result }}"
           echo "Prod     : ${{ needs.deploy-production.result }}"
-          echo "------------------------------------------------------------------------------------------------------------------------------------------------"
-```
+          echo "------------------------------------"
