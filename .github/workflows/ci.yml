@@ -181,7 +181,7 @@ jobs:
     if: github.ref == 'refs/heads/master'
     environment:
       name: staging
-      url: http://${{ secrets.DEPLOY_HOST }}:8090
+      url: http://172.31.8.218:8090
 
     steps:
       - name: Download image artifact
@@ -289,3 +289,4 @@ jobs:
           echo "Staging  : ${{ needs.deploy-staging.result }}"
           echo "Prod     : ${{ needs.deploy-production.result }}"
           echo "------------------------------------"
+
