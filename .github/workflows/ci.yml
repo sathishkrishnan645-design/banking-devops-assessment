@@ -227,7 +227,7 @@ jobs:
             fi
             sleep 5
           done
-          echo "❌ Staging health check failed"
+          echo " Staging health check failed"
           exit 1
 
   # -------- Job 5: Deploy to Production (with approval) ------------------------------------------------------------------------------------------------
